@@ -292,7 +292,23 @@ function candidates(name){return PEOPLE.filter(p=>p!==name&&!(EXCL[name]||[]).in
 function load(){try{return JSON.parse(localStorage.getItem(KEY)||"null")}catch(e){return null}}
 function save(v){try{localStorage.setItem(KEY,JSON.stringify(v))}catch(e){}}
 function doneList(){const st=load();if(!st)return[];if(Array.isArray(st.done))return st.done.filter(p=>PEOPLE.includes(p));if(st.done===true&&PEOPLE.includes(st.me))return[st.me];return[]}
-function markDone(n){const d=doneList();if(!d.includes(n))d.push(n);save({done:d})}
+function markDone(n){const d=doneList();if(!d.includes(n))d.push(n);save({done:d});shPush(n)}
+/* ---------- suivi commun : seuls des compteurs anonymes (b00 à b11) sont partagés, jamais un prénom ni un résultat ---------- */
+const SH="https://abacus.jasoncameron.dev",NS="nww253ho6d4g4";
+let remote=[],shown=[],shBusy=false,dropBusy=false;
+function shKey(n){const i=PEOPLE.indexOf(n);return"b"+(i<10?"0":"")+i}
+function shCall(path){return new Promise(res=>{try{if(typeof fetch!=="function")return res(null);const o={cache:"no-store",referrerPolicy:"no-referrer"};let t=0;
+  if(typeof AbortController!=="undefined"){const c=new AbortController();o.signal=c.signal;t=setTimeout(()=>{try{c.abort()}catch(e){}},8000)}
+  fetch(SH+path,o).then(r=>r.status===404?{value:0}:r.ok?r.json():null).then(j=>{clearTimeout(t);res(j&&typeof j.value==="number"?j.value:null)}).catch(()=>{clearTimeout(t);res(null)})}catch(e){res(null)}})}
+function shPush(n){shCall("/hit/"+NS+"/"+shKey(n))}
+function allDone(){for(const p of doneList())if(!shown.includes(p))shown.push(p);for(const p of remote)if(!shown.includes(p))shown.push(p);return shown.slice()}
+function shApply(){if(document.body.dataset.screen!=="s-who")return;if(dropBusy){setTimeout(shApply,2500);return}renderTree(null)}
+function shSync(){if(shBusy)return;shBusy=true;
+  Promise.all(PEOPLE.map(p=>shCall("/get/"+NS+"/"+shKey(p)))).then(vs=>{shBusy=false;const loc=doneList();let ch=false;
+    PEOPLE.forEach((p,i)=>{if(vs[i]>0&&!remote.includes(p)){remote.push(p);if(!shown.includes(p))ch=true}if(vs[i]===0&&loc.includes(p))shPush(p)});
+    if(ch)shApply()}).catch(()=>{shBusy=false})}
+setInterval(()=>{if(!document.hidden&&document.body.dataset.screen==="s-who")shSync()},25000);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)shSync()});
 function show(id){document.body.dataset.screen=id;for(const s of document.querySelectorAll(".screen"))s.hidden=s.id!==id;fitHome();window.scrollTo({top:0,behavior:"smooth"})}
 /* l'accueil tient sur un seul écran : le sapin prend la hauteur qui reste */
 function buildTree(k){TK=k;VH=TY(108)+30;const m=d=>d.replace(/(-?[\d.]+) (-?[\d.]+)/g,(q,x,y)=>x+" "+TY(+y).toFixed(2)),G=TY(107);
@@ -318,7 +334,7 @@ function fitHome(){const b=document.body,box=document.querySelector(".treebox");
   /* s'il reste de la hauteur, les boules tombées descendent plus bas dans la neige */
   const extra=b.classList.contains("fit")?Math.max(0,avail/w*100-VH):14;footShift=Math.min(extra*.5,12);rowGap=Math.min(extra*.3,7);
   layoutSlots()}
-function layoutSlots(){const d=doneList();PEOPLE.forEach((p,i)=>{const sl=$("slot"+i);if(!sl||sl.dataset.fly)return;place(sl,sl.classList.contains("foot")?footPos(d.indexOf(p)):treePos(i))})}
+function layoutSlots(){const d=allDone();PEOPLE.forEach((p,i)=>{const sl=$("slot"+i);if(!sl||sl.dataset.fly)return;place(sl,sl.classList.contains("foot")?footPos(d.indexOf(p)):treePos(i))})}
 addEventListener("resize",fitHome);if(document.fonts&&document.fonts.ready)document.fonts.ready.then(fitHome);addEventListener("load",fitHome);
 
 /* ---------- dessins maison (drapeaux, ail, ballons…) ---------- */
@@ -480,21 +496,21 @@ function place(el,[x,y]){el.style.left=x+"%";el.style.top=(y/VH*100)+"%"}
 function footPos(f){f=((f%12)+12)%12;const q=FOOT0[f];return[q[0],TY(108)+q[1]+footShift+(f>=7?rowGap:0)]}
 function treePos(i){return[POS0[i][0],TY(POS0[i][1])]}
 function renderTree(drop){
-  const d=doneList();
-  $("who-title").textContent=d.length?"Joyeux Noël !":"Choisis ta boule avec ton prénom !";
+  const d=allDone();
+  $("who-title").textContent=doneList().length?"Joyeux Noël !":"Choisis ta boule avec ton prénom !";
   PEOPLE.forEach((p,i)=>{const sl=$("slot"+i),b=sl.querySelector(".orn");b.textContent=p;const f=d.indexOf(p);
     const atFoot=f>=0&&p!==drop;sl.classList.toggle("foot",atFoot);sl.classList.remove("landed");delete sl.dataset.fly;
     b.setAttribute("aria-label",f>=0?p+", déjà tiré : revoir le résultat":p);
     sl.style.transition=p===drop?"none":""});
   fitHome();layoutSlots();
-  if(drop){const i=PEOPLE.indexOf(drop),sl=$("slot"+i),f=d.indexOf(drop);setTimeout(()=>{sl.style.transition="";sl.dataset.fly="1";place(sl,footPos(f));tone(660,.1,.3,"sine",.06);tone(330,1,.25,"triangle",.1);setTimeout(()=>{delete sl.dataset.fly;sl.classList.add("foot","landed");boost=1.5;if(!document.body.classList.contains("fit"))sl.scrollIntoView({behavior:"smooth",block:"center"})},1100)},700)}
+  if(drop){dropBusy=true;setTimeout(()=>{dropBusy=false},2000);const i=PEOPLE.indexOf(drop),sl=$("slot"+i),f=d.indexOf(drop);setTimeout(()=>{sl.style.transition="";sl.dataset.fly="1";place(sl,footPos(f));tone(660,.1,.3,"sine",.06);tone(330,1,.25,"triangle",.1);setTimeout(()=>{delete sl.dataset.fly;sl.classList.add("foot","landed");boost=1.5;if(!document.body.classList.contains("fit"))sl.scrollIntoView({behavior:"smooth",block:"center"})},1100)},700)}
 }
 $("names").querySelectorAll(".orn").forEach((b,i)=>b.addEventListener("click",()=>{const p=PEOPLE[i];audio();
-  if(doneList().includes(p)){openPeek(p);return}
+  if(allDone().includes(p)){openPeek(p);return}
   me=p;$("confirm-name").textContent=me+" ?";show("s-confirm");tone(1320,0,.25,"sine",.08)}));
 $("no").addEventListener("click",()=>{me=null;show("s-who")});
 $("yes").addEventListener("click",()=>{audio();openWheel(me)});
-function toTree(drop){const n=me;applyTheme(null);show("s-who");renderTree(drop?n:null)}
+function toTree(drop){const n=me;applyTheme(null);show("s-who");renderTree(drop?n:null);shSync()}
 $("back").addEventListener("click",()=>{const just=$("back").dataset.drop==="1";$("back").dataset.drop="";toTree(just)});
 $("rvback").addEventListener("click",()=>{closeReveal();$("back").dataset.drop="";toTree(!memoMode)});
 $("back2").addEventListener("click",()=>toTree(false));
@@ -574,7 +590,7 @@ function openReveal(t,memo){
 function closeReveal(){$("reveal").hidden=true;$("reveal").className=""}
 $("close").addEventListener("click",()=>{closeReveal();showTag($("rv-name").textContent);$("hello").textContent=T("bravo");$("backrow").hidden=false;$("back").dataset.drop="1";$("result").scrollIntoView({behavior:"smooth",block:"center"})});
 
-applyTheme(null);show("s-who");renderTree(null);
+applyTheme(null);show("s-who");renderTree(null);shSync();
 }
 </script>
 </body>
