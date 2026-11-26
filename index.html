@@ -295,17 +295,20 @@ function doneList(){const st=load();if(!st)return[];if(Array.isArray(st.done))re
 function markDone(n){const d=doneList();if(!d.includes(n))d.push(n);save({done:d});shPush(n)}
 /* ---------- suivi commun : seuls des compteurs anonymes (b00 à b11) sont partagés, jamais un prénom ni un résultat ---------- */
 const SH="https://abacus.jasoncameron.dev",NS="nww253ho6d4g4";
+const RK="ss-suivi-"+NS;
 let remote=[],shown=[],shBusy=false,dropBusy=false;
+try{const a=JSON.parse(localStorage.getItem(RK)||"[]");if(Array.isArray(a))remote=a.filter(p=>PEOPLE.includes(p))}catch(e){}
+function shKnown(p){if(remote.includes(p))return;remote.push(p);try{localStorage.setItem(RK,JSON.stringify(remote))}catch(e){}}
 function shKey(n){const i=PEOPLE.indexOf(n);return"b"+(i<10?"0":"")+i}
 function shCall(path){return new Promise(res=>{try{if(typeof fetch!=="function")return res(null);const o={cache:"no-store",referrerPolicy:"no-referrer"};let t=0;
   if(typeof AbortController!=="undefined"){const c=new AbortController();o.signal=c.signal;t=setTimeout(()=>{try{c.abort()}catch(e){}},8000)}
   fetch(SH+path,o).then(r=>r.status===404?{value:0}:r.ok?r.json():null).then(j=>{clearTimeout(t);res(j&&typeof j.value==="number"?j.value:null)}).catch(()=>{clearTimeout(t);res(null)})}catch(e){res(null)}})}
-function shPush(n){shCall("/hit/"+NS+"/"+shKey(n))}
+function shPush(n){shCall("/hit/"+NS+"/"+shKey(n)).then(v=>{if(v>0)shKnown(n)})}
 function allDone(){for(const p of doneList())if(!shown.includes(p))shown.push(p);for(const p of remote)if(!shown.includes(p))shown.push(p);return shown.slice()}
 function shApply(){if(document.body.dataset.screen!=="s-who")return;if(dropBusy){setTimeout(shApply,2500);return}renderTree(null)}
-function shSync(){if(shBusy)return;shBusy=true;
-  Promise.all(PEOPLE.map(p=>shCall("/get/"+NS+"/"+shKey(p)))).then(vs=>{shBusy=false;const loc=doneList();let ch=false;
-    PEOPLE.forEach((p,i)=>{if(vs[i]>0&&!remote.includes(p)){remote.push(p);if(!shown.includes(p))ch=true}if(vs[i]===0&&loc.includes(p))shPush(p)});
+function shSync(){const todo=PEOPLE.filter(p=>!remote.includes(p));if(shBusy||!todo.length)return;shBusy=true;
+  Promise.all(todo.map(p=>shCall("/get/"+NS+"/"+shKey(p)))).then(vs=>{shBusy=false;const loc=doneList();let ch=false;
+    todo.forEach((p,i)=>{if(vs[i]>0){shKnown(p);if(!shown.includes(p))ch=true}else if(vs[i]===0&&loc.includes(p))shPush(p)});
     if(ch)shApply()}).catch(()=>{shBusy=false})}
 setInterval(()=>{if(!document.hidden&&document.body.dataset.screen==="s-who")shSync()},25000);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)shSync()});
